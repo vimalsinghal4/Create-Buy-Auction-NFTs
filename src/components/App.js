@@ -1,22 +1,10 @@
-import DStorage from "../abis/DStorage.json";
-import DVideo from "../abis/DVideo.json";
 import React, { Component } from "react";
-import Navbar from "./Navbar";
-import Main from "./Main";
 import Web3 from "web3";
+import Color from "../abis/Color.json";
 import "./App.css";
-import Video from "./Video";
 
-const ipfsClient = require("ipfs-http-client");
-const ipfs = ipfsClient({
-  host: "ipfs.infura.io",
-  port: 5001,
-  protocol: "https",
-  apiPath: '/api/v0'
-}); 
-
-class App extends Component {
-  async componentWillMount() {
+export default class App extends Component {
+  async componentDidMount() {
     await this.loadWeb3();
     await this.loadBlockchainData();
   }
@@ -39,189 +27,123 @@ class App extends Component {
     // Load account
     const accounts = await web3.eth.getAccounts();
     this.setState({ account: accounts[0] });
-    // Network ID
-    const networkId = await web3.eth.net.getId();
-    const networkData = DStorage.networks[networkId];
-    const networkData1= DVideo.networks[networkId];
-    if (networkData) {
-      // Assign contract
-      const dstorage = new web3.eth.Contract(DStorage.abi, networkData.address);
-      this.setState({ dstorage });
-      // Get files amount
-      const filesCount = await dstorage.methods.fileCount().call();
-      this.setState({ filesCount });
-      // Load files&sort by the newest
-      for (var i = filesCount; i >= 1; i--) {
-        const file = await dstorage.methods.files(i).call();
+    const networkid = await web3.eth.net.getId();
+    const networkdata = Color.networks[networkid];
+    if (networkdata) {
+      const abi = Color.abi;
+      const address = networkdata.address;
+      const contract = new web3.eth.Contract(abi, address);
+      this.setState({ contract });
+      const count = await contract.methods.count().call();
+
+      this.setState({ totalSupply: count });
+      for (var i = 1; i <= count; i++) {
+        const color = await contract.methods.colors(i - 1).call();
+        const owner = await contract.methods.owner(i - 1).call();
         this.setState({
-          files: [...this.state.files, file],
+          colors: [...this.state.colors, color],
+          owners: [...this.state.owners, owner],
         });
       }
     } else {
-      window.alert("DStorage contract not deployed to detected network.");
-    }
-    if(networkData1){
-      const dvideo = new web3.eth.Contract(DVideo.abi, networkData1.address);
-      this.setState({ dvideo });
-      const videosCount = await dvideo.methods.videoCount().call();
-      this.setState({ videosCount });
-      for (i = videosCount; i >= 1; i--) {
-        const video = await dvideo.methods.videos(i).call();
-        this.setState({
-          videos: [...this.state.videos, video],
-        });
-      }
-      const latest = await dvideo.methods.videos(videosCount).call();
-      this.setState({
-        currentHash: latest.hash,
-        currentTitle: latest.title,
-      }); 
-      this.setState({ loading: false });
-    }
-    else {
-      window.alert("DVideo contract not deployed to detected network.");
+      window.alert("Smart contract not deployed to detected network");
     }
   }
-
-  // Get file from user
-  captureFile = (event) => {
-    event.preventDefault();
-    const file = event.target.files[0];
-    const reader = new window.FileReader();
-    reader.readAsArrayBuffer(file);
-    reader.onloadend = () => {
-      this.setState({
-        buffer: Buffer(reader.result),
-        type: file.type,
-        name: file.name,
-      });
-      console.log("buffer", this.state.buffer);
-    };
-  };
-  captureVideo = (event) => {
-    event.preventDefault();
-    const file = event.target.files[0];
-    const reader = new window.FileReader();
-    reader.readAsArrayBuffer(file);
-    reader.onloadend = () => {
-      this.setState({ buffer1: Buffer(reader.result) });
-      console.log("buffer", this.state.buffer1);
-    };
-  };
-  uploadVideo = (title) => {
-    console.log("Submitting file to IPFS...");
-    ipfs.add(this.state.buffer1, (error, result) => {
-      console.log("IPFS result", result);
-      if (error) {
-        console.error(error);
-        return;
-      }
-      this.setState({ loading: true });
-      this.state.dvideo.methods
-        .uploadVideo(result[0].hash, title)
-        .send({ from: this.state.account })
-        .on("transactionHash", (hash) => {
-          this.setState({ loading: false });
-        });
-    });
-  };
-  changeVideo = (hash, title) => {
-    this.setState({ 'currentHash': hash });
-    this.setState({ 'currentTitle': title });
-  };
-  uploadFile = (description) => {
-    console.log("Submitting file to IPFS...");
-
-    // Add file to the IPFS
-    ipfs.add(this.state.buffer, (error, result) => {
-      console.log("IPFS result", result);
-      if (error) {
-        console.error(error);
-        return;
-      }
-      this.setState({ loading: true });
-      // Assign value for the file without extension
-      if (this.state.type === "") {
-        this.setState({ type: "none" });
-      }
-      this.state.dstorage.methods
-        .uploadFile(
-          result[0].hash,
-          result[0].size,
-          this.state.type,
-          this.state.name,
-          description
-        )
-        .send({ from: this.state.account })
-        .on("transactionHash", (hash) => {
-          this.setState({
-            loading: false,
-            type: null,
-            name: null,
-          });
-          window.location.reload();
-        })
-        .on("error", (e) => {
-          window.alert("Error");
-          this.setState({ loading: false });
-        });
-    });
-  };
-
   constructor(props) {
     super(props);
     this.state = {
       account: "",
-      dstorage: null,
-      files: [],
-      loading: false,
-      type: null,
-      name: null,
-      dvideo: null,
-      videos: [],
-      currentHash: null,
-      currentTitle: null,
-      buffer1: null,
+      contract: null,
+      totalSupply: 0,
+      colors: [],
+      owners: [],
+      auction:[]
     };
-    this.uploadFile = this.uploadFile.bind(this);
-    this.captureFile = this.captureFile.bind(this);
-    this.uploadVideo = this.uploadVideo.bind(this);
-    this.captureVideo = this.captureVideo.bind(this);
-    this.changeVideo = this.changeVideo.bind(this);
   }
-
+  mint = (color) => {
+    this.state.contract.methods
+      .mint(color)
+      .send({ from: this.state.account })
+      .once("receipt", (receipt) => {
+        this.setState({
+          colors: [...this.state.colors, color],
+        });
+      });
+  };
   render() {
     return (
-      <div className="container">
-        <Navbar account={this.state.account} />
-        {this.state.loading ? (
-          <div id="loader" className="text-center mt-5">
-            <p>Loading...</p>
+      <div>
+        <nav className="navbar navbar-dark fixed-top bg-dark flex-md-nowrap p-0 shadow">
+          <a
+            className="navbar-brand col-sm-3 col-md-2 mr-0"
+            rel="noopener noreferrer"
+          >
+            Color Tokens
+          </a>
+          <a
+            className="navbar-brand"
+            href={"https://etherscan.io/address/" + this.state.account}
+            target="_blank"
+          >
+            {" "}
+            {this.state.account}{" "}
+          </a>
+        </nav>
+        <div className="container-fluid mt-5">
+          <div className="row">
+            <main role="main" className="col-lg-12 d-flex text-center">
+              <div className="content mr-auto ml-auto">
+                <h1>Issue Token</h1>
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const color = this.color.value;
+                    this.mint(color);
+                  }}
+                >
+                  <input
+                    type="text"
+                    className="form-control mb-1"
+                    placeholder="e.g. #FFFFFF"
+                    ref={(input) => {
+                      this.color = input;
+                    }}
+                  />
+                  <input
+                    type="submit"
+                    className="btn btn-block btn-primary"
+                    value="MINT"
+                  />
+                </form>
+              </div>
+            </main>
           </div>
-        ) : (
-          <Main
-            files={this.state.files}
-            captureFile={this.captureFile}
-            uploadFile={this.uploadFile}
-          />
-        )}
-        {this.state.loading ? (
-          <div id="loader1" className="text-center mt-5">
-            <p>Loading...</p>
+          <hr />
+          <div >
+            <h1>Your Collection</h1>
           </div>
-        ) : (
-          <Video
-            videos={this.state.videos}
-            uploadVideo={this.uploadVideo}
-            captureVideo={this.captureVideo}
-            changeVideo={this.changeVideo}
-            currentHash={this.state.currentHash}
-            currentTitle={this.state.currentTitle}
-          />
-        )}
+          <div className="row text-center">
+            {this.state.colors.map((color, key) => {
+              if (this.state.account === this.state.owners[key]) {
+                return (
+                  <div key={key} className="col-md-3 mb-3">
+                    <div
+                      className="token"
+                      style={{ backgroundColor: color }}
+                    ></div>
+                    <div> {color}</div>
+                    <div><button type="button" class="btn btn-primary">Send To Auction</button></div>
+                  </div>
+                );
+              }
+            })}
+          </div>
+          <hr />
+          <div>
+            <h1>Currently In Auction</h1>
+          </div>
+        </div>
       </div>
     );
   }
 }
-
-export default App;
